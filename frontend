@@ -1,0 +1,89 @@
+# frontend.py
+
+import streamlit as st
+import backend as db
+import pandas as pd
+
+# Initialize the database and insert sample data (run this once)
+db.create_table_and_insert_data()
+
+st.set_page_config(layout="wide")
+st.title("🏙️ Urban Asset Tracker")
+st.markdown("A dashboard to monitor public infrastructure assets and their maintenance history.")
+
+# ==============================================================================
+# Business Insights Section
+# ==============================================================================
+st.header("📊 Business Insights")
+st.markdown("---")
+
+insights = db.get_business_insights()
+
+if insights:
+    # MIN/MAX maintenance cost
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric(label="Most Expensive Asset to Maintain", value=f"${insights['max_maintenance_cost']:,.2f}")
+    with col2:
+        st.metric(label="Least Expensive Asset to Maintain", value=f"${insights['min_maintenance_cost']:,.2f}")
+    
+    st.markdown("---")
+    
+    # Count of unique districts
+    st.metric(label="Number of City Districts with Assets", value=insights['distinct_districts'])
+    
+    st.markdown("---")
+    
+    # Breakdown by asset type
+    st.subheader("Breakdown by Asset Type")
+    st.dataframe(insights['breakdown_by_type'], use_container_width=True)
+else:
+    st.error("Could not load business insights. Please check database connection.")
+
+# ==============================================================================
+# READ & Filtering Section
+# ==============================================================================
+st.header("🔍 Asset Viewer")
+st.markdown("---")
+
+# Aggregation Metrics (in a sidebar for better layout)
+st.sidebar.header("Key Asset Metrics")
+metrics = db.get_key_metrics()
+if metrics:
+    st.sidebar.metric(label="Total Assets", value=metrics['total_assets'])
+    st.sidebar.metric(label="Total Maintenance Cost", value=f"${metrics['total_maintenance_cost']:,.2f}")
+    st.sidebar.metric(label="Avg. Service Life (Years)", value=f"{metrics['avg_service_life']:.2f}")
+else:
+    st.sidebar.error("Could not load key metrics.")
+
+# Filtering and Sorting Controls
+asset_types = db.get_asset_types()
+city_districts = db.get_city_districts()
+
+col1, col2 = st.columns(2)
+with col1:
+    selected_asset_type = st.selectbox("Filter by Asset Type", options=asset_types)
+with col2:
+    selected_city_district = st.selectbox("Filter by City District", options=city_districts)
+
+sort_option = st.radio(
+    "Sort by",
+    options=["None", "installation_date", "maintenance_cost"],
+    format_func=lambda x: "None" if x == "None" else "Newest First" if x == "installation_date" else "Highest Maintenance Cost"
+)
+
+# Fetch and display data
+assets_df = db.fetch_assets(
+    asset_type=selected_asset_type,
+    city_district=selected_city_district,
+    sort_by=sort_option
+)
+
+if not assets_df.empty:
+    st.subheader(f"Total Assets Found: {len(assets_df)}")
+    st.dataframe(assets_df, use_container_width=True)
+else:
+    st.warning("No assets found with the selected criteria.")
+
+st.markdown("---")
+st.caption("Application powered by Streamlit and PostgreSQL.")

@@ -1,0 +1,241 @@
+# backend.py
+
+import psycopg2
+import pandas as pd
+from psycopg2 import sql
+from typing import List, Dict, Any
+
+# You will need to replace these with your actual database credentials
+DB_HOST = "localhost"
+DB_NAME = "To-Do"
+DB_USER = "postgres"
+DB_PASSWORD = "Harry#17"
+
+def get_db_connection():
+    """
+    Establishes and returns a connection to the PostgreSQL database.
+    """
+    try:
+        conn = psycopg2.connect(
+            host=DB_HOST,
+            dbname=DB_NAME,
+            user=DB_USER,
+            password=DB_PASSWORD
+        )
+        return conn
+    except psycopg2.OperationalError as e:
+        print(f"Error connecting to database: {e}")
+        return None
+
+def create_table_and_insert_data():
+    """
+    Creates the city_assets table and inserts sample data.
+    This function should be run once to set up the database.
+    """
+    conn = get_db_connection()
+    if not conn:
+        return
+
+    cur = conn.cursor()
+    try:
+        # Create table
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS city_assets (
+                asset_id VARCHAR(255) PRIMARY KEY,
+                asset_type VARCHAR(50) NOT NULL,
+                location_name VARCHAR(255),
+                installation_date DATE,
+                maintenance_cost DECIMAL(10, 2),
+                service_life_years INTEGER,
+                city_district VARCHAR(50)
+            );
+        """)
+
+        # Insert sample data (only if the table is empty)
+        cur.execute("SELECT COUNT(*) FROM city_assets;")
+        count = cur.fetchone()[0]
+        if count == 0:
+            sample_data = [
+                ('SL-001', 'Street Light', 'Main St & 1st Ave', '2018-05-21', 150.50, 25, 'Downtown'),
+                ('BS-005', 'Bus Stop', 'Elm St & 3rd Ave', '2015-11-10', 75.00, 30, 'Midtown'),
+                ('PB-012', 'Park Bench', 'Central Park', '2020-03-01', 30.25, 15, 'Uptown'),
+                ('SL-002', 'Street Light', 'Oak St & 5th Ave', '2019-09-15', 180.75, 25, 'Downtown'),
+                ('BS-008', 'Bus Stop', 'Maple Ave & 8th St', '2017-02-28', 85.50, 30, 'Uptown'),
+                ('PB-020', 'Park Bench', 'Riverside Park', '2021-08-01', 25.00, 15, 'Midtown'),
+                ('SL-003', 'Street Light', 'Pine St & 2nd Ave', '2022-11-05', 200.00, 25, 'Downtown'),
+                ('BS-010', 'Bus Stop', 'Cedar Rd & 10th St', '2016-04-12', 95.25, 30, 'Uptown'),
+            ]
+            cur.executemany("""
+                INSERT INTO city_assets (asset_id, asset_type, location_name, installation_date, maintenance_cost, service_life_years, city_district)
+                VALUES (%s, %s, %s, %s, %s, %s, %s);
+            """, sample_data)
+            conn.commit()
+            print("Database setup complete with sample data.")
+        else:
+            print("Table 'city_assets' already exists and is not empty. Skipping data insertion.")
+    except (Exception, psycopg2.Error) as error:
+        print(f"Error creating table or inserting data: {error}")
+    finally:
+        if conn:
+            cur.close()
+            conn.close()
+
+def fetch_assets(asset_type: str = None, city_district: str = None, sort_by: str = None, sort_order: str = 'DESC') -> pd.DataFrame:
+    """
+    Fetches assets from the database with optional filtering and sorting.
+    Returns the results as a Pandas DataFrame.
+    """
+    conn = get_db_connection()
+    if not conn:
+        return pd.DataFrame()
+
+    try:
+        query_parts = ["SELECT * FROM city_assets WHERE 1=1"]
+        params = []
+
+        if asset_type and asset_type != "All":
+            query_parts.append("AND asset_type = %s")
+            params.append(asset_type)
+
+        if city_district and city_district != "All":
+            query_parts.append("AND city_district = %s")
+            params.append(city_district)
+
+        if sort_by:
+            if sort_by == 'installation_date':
+                query_parts.append("ORDER BY installation_date DESC")
+            elif sort_by == 'maintenance_cost':
+                query_parts.append("ORDER BY maintenance_cost DESC")
+
+        final_query = " ".join(query_parts)
+        df = pd.read_sql(final_query, conn, params=params)
+        return df
+    except (Exception, psycopg2.Error) as error:
+        print(f"Error fetching data: {error}")
+        return pd.DataFrame()
+    finally:
+        if conn:
+            conn.close()
+
+def get_asset_types() -> List[str]:
+    """
+    Fetches all unique asset types from the database for filtering.
+    """
+    conn = get_db_connection()
+    if not conn:
+        return []
+
+    try:
+        df = pd.read_sql("SELECT DISTINCT asset_type FROM city_assets ORDER BY asset_type;", conn)
+        return ['All'] + df['asset_type'].tolist()
+    except (Exception, psycopg2.Error) as error:
+        print(f"Error fetching asset types: {error}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+def get_city_districts() -> List[str]:
+    """
+    Fetches all unique city districts from the database for filtering.
+    """
+    conn = get_db_connection()
+    if not conn:
+        return []
+
+    try:
+        df = pd.read_sql("SELECT DISTINCT city_district FROM city_assets ORDER BY city_district;", conn)
+        return ['All'] + df['city_district'].tolist()
+    except (Exception, psycopg2.Error) as error:
+        print(f"Error fetching city districts: {error}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+def get_key_metrics() -> Dict[str, Any]:
+    """
+    Calculates and returns key aggregate metrics.
+    """
+    conn = get_db_connection()
+    if not conn:
+        return {}
+
+    try:
+        query = """
+            SELECT
+                COUNT(*) AS total_assets,
+                SUM(maintenance_cost) AS total_maintenance_cost,
+                AVG(service_life_years) AS avg_service_life
+            FROM city_assets;
+        """
+        cur = conn.cursor()
+        cur.execute(query)
+        result = cur.fetchone()
+        
+        metrics = {
+            'total_assets': result[0],
+            'total_maintenance_cost': result[1],
+            'avg_service_life': result[2]
+        }
+        return metrics
+    except (Exception, psycopg2.Error) as error:
+        print(f"Error fetching key metrics: {error}")
+        return {}
+    finally:
+        if conn:
+            conn.close()
+
+def get_business_insights() -> Dict[str, Any]:
+    """
+    Calculates and returns business insights metrics.
+    """
+    conn = get_db_connection()
+    if not conn:
+        return {}
+
+    try:
+        # Query for MIN/MAX maintenance cost
+        query_min_max = """
+            SELECT
+                MIN(maintenance_cost),
+                MAX(maintenance_cost)
+            FROM city_assets;
+        """
+        cur = conn.cursor()
+        cur.execute(query_min_max)
+        min_cost, max_cost = cur.fetchone()
+
+        # Query for unique district count
+        query_distinct_districts = """
+            SELECT COUNT(DISTINCT city_district) FROM city_assets;
+        """
+        cur.execute(query_distinct_districts)
+        distinct_districts = cur.fetchone()[0]
+
+        # Query for grouped breakdown
+        query_breakdown = """
+            SELECT
+                asset_type,
+                COUNT(*) AS asset_count,
+                SUM(maintenance_cost) AS total_cost,
+                AVG(maintenance_cost) AS avg_cost
+            FROM city_assets
+            GROUP BY asset_type
+            ORDER BY asset_type;
+        """
+        breakdown_df = pd.read_sql(query_breakdown, conn)
+
+        insights = {
+            'min_maintenance_cost': min_cost,
+            'max_maintenance_cost': max_cost,
+            'distinct_districts': distinct_districts,
+            'breakdown_by_type': breakdown_df
+        }
+        return insights
+    except (Exception, psycopg2.Error) as error:
+        print(f"Error fetching business insights: {error}")
+        return {}
+    finally:
+        if conn:
+            conn.close()

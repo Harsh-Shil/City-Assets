@@ -1,0 +1,9 @@
+CREATE TABLE city_assets (
+ asset_id VARCHAR(255) PRIMARY KEY,
+ asset_type VARCHAR(50) NOT NULL, -- e.g., 'Street Light', 'Bus Stop', 'Park Bench'
+ location_name VARCHAR(255),
+ installation_date DATE,
+ maintenance_cost DECIMAL(10, 2), -- Cost of last maintenance in local currency
+ service_life_years INTEGER,
+ city_district VARCHAR(50) -- The district or zone where the asset is located
+);
